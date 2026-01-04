@@ -8,7 +8,8 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-let submissions = []; // store all submissions
+// Store submissions in memory
+let submissions = [];
 
 // --- Discord bot ---
 const client = new Client({ 
@@ -23,7 +24,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN; // set in Render
 const CHANNEL_ID = process.env.CHANNEL_ID;       // set in Render
 
 client.on("messageCreate", msg => {
-  if (msg.channel.id !== CHANNEL_ID) return; // only listen to submissions channel
+  if (msg.channel.id !== CHANNEL_ID) return; // only this channel
   if (!msg.attachments.size) return; // require at least one image
 
   const lines = msg.content.split("\n");
@@ -43,16 +44,28 @@ client.on("messageCreate", msg => {
     timestamp: Date.now()
   });
 
-  // keep only the last 20 submissions to avoid memory issues
+  // keep last 20 submissions to avoid memory issues
   if (submissions.length > 20) submissions.shift();
 });
 
 client.login(DISCORD_TOKEN);
 
-// --- Website endpoint ---
+// --- GET last 3 submissions ---
 app.get("/submissions", (req, res) => {
-  const lastThree = submissions.slice(-3); // only last 3
+  const lastThree = submissions.slice(-3);
   res.json(lastThree);
+});
+
+// --- PATCH verified status ---
+app.patch("/submissions/:id", (req, res) => {
+  const id = parseInt(req.params.id);
+  const { verified } = req.body;
+
+  const submission = submissions.find(s => s.id === id);
+  if (!submission) return res.status(404).json({ error: "Submission not found" });
+
+  submission.verified = !!verified;
+  res.json(submission);
 });
 
 const PORT = process.env.PORT || 3000;
