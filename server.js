@@ -11,8 +11,8 @@ let submissions = []; // stores submissions
 
 // --- Discord bot ---
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
-const DISCORD_TOKEN = "YOUR_BOT_TOKEN"; // replace
-const CHANNEL_ID = "YOUR_CHANNEL_ID";   // replace
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CHANNEL_ID = process.env.CHANNEL_ID;
 
 client.on("messageCreate", msg => {
   if (msg.channel.id !== CHANNEL_ID) return;
