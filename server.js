@@ -1,4 +1,5 @@
 // server.js (Render)
+// ============================
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -8,13 +9,11 @@ app.use(bodyParser.json());
 app.use(cors());
 
 // ------------------------
-// Submissions storage
-// ------------------------
+// Submissions storage (keep last 20, only return last 3 on GET)
 let submissions = [];
 
 // ------------------------
 // Routes
-// ------------------------
 
 // GET last 3 submissions
 app.get("/submissions", (req, res) => {
@@ -22,7 +21,7 @@ app.get("/submissions", (req, res) => {
   res.json(lastThree);
 });
 
-// PATCH verified status (optional for website clicks)
+// PATCH verified status
 app.patch("/submissions/:id", (req, res) => {
   const id = parseInt(req.params.id);
   const { verified } = req.body;
@@ -32,7 +31,7 @@ app.patch("/submissions/:id", (req, res) => {
   res.json(sub);
 });
 
-// NEW: POST new submission from local bot
+// POST new submission from local bot
 app.post("/submissions", (req, res) => {
   const { conversion, price, stock, image } = req.body;
   if (!conversion || !price || !stock || !image) {
@@ -40,7 +39,7 @@ app.post("/submissions", (req, res) => {
   }
 
   const newSub = {
-    id: submissions.length + 1,
+    id: submissions.length + 1, // simple incremental ID
     conversion,
     price,
     stock,
@@ -50,17 +49,13 @@ app.post("/submissions", (req, res) => {
   };
 
   submissions.push(newSub);
-
-  // Keep only last 20 submissions
-  if (submissions.length > 20) submissions.shift();
+  if (submissions.length > 20) submissions.shift(); // keep last 20
 
   console.log(`🆕 New submission #${newSub.id}: ${conversion}`);
   res.json(newSub);
 });
 
-
 // ------------------------
 // Start server
-// ------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
