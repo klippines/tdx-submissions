@@ -1,28 +1,40 @@
-// server.js
+// ===== CRASH + PROMISE DIAGNOSTICS (LINE 1) =====
 process.on("unhandledRejection", err => {
-  console.error("🔥 UNHANDLED PROMISE REJECTION:", err);
+  console.error("🔥 UNHANDLED PROMISE:", err);
 });
-
 process.on("uncaughtException", err => {
   console.error("💥 UNCAUGHT EXCEPTION:", err);
 });
 
+// ===== IMPORTS =====
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const { Client, GatewayIntentBits, Partials } = require("discord.js");
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials 
+} = require("discord.js");
 
-console.log("🟢 Booting server...");
-
+// ===== EXPRESS =====
 const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// Store submissions in memory
+// ===== MEMORY STORE =====
 let submissions = [];
 
-// --- Discord bot ---
-const client = new Client({ 
+// ===== ENV =====
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CHANNEL_ID = process.env.CHANNEL_ID;
+
+console.log("🔑 ENV CHECK:", {
+  hasToken: !!DISCORD_TOKEN,
+  channelId: CHANNEL_ID
+});
+
+// ===== DISCORD CLIENT =====
+const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -36,57 +48,32 @@ const client = new Client({
   ]
 });
 
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = process.env.CHANNEL_ID;
-
-console.log("🔑 ENV CHECK:", {
-  hasToken: !!DISCORD_TOKEN,
-  channelId: CHANNEL_ID
-});
-
-// --- Bot ready ---
+// ===== DISCORD LIFECYCLE LOGS =====
 client.once("ready", () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
-  console.log("📡 Listening for messages in channel:", CHANNEL_ID);
 });
 
-// --- Message create handler ---
+client.on("error", err => {
+  console.error("❌ Discord client error:", err);
+});
+
+client.on("shardError", err => {
+  console.error("❌ Shard error:", err);
+});
+
+// ===== MESSAGE HANDLER =====
 client.on("messageCreate", msg => {
-  console.log("📩 messageCreate fired");
-
-  if (msg.author.bot) {
-    console.log("↪ Ignored bot message");
-    return;
-  }
-
-  console.log("📍 Channel:", msg.channel.id);
-  console.log("📝 Content:", msg.content);
-  console.log("🖼 Attachments:", msg.attachments.size);
-
-  if (msg.channel.id !== CHANNEL_ID) {
-    console.log("↪ Wrong channel");
-    return;
-  }
-
-  if (!msg.attachments.size) {
-    console.log("↪ No attachments");
-    return;
-  }
+  if (msg.channel.id !== CHANNEL_ID) return;
+  if (!msg.attachments.size) return;
 
   const lines = msg.content.split("\n");
-
   const conversion = lines.find(l => l.toLowerCase().startsWith("conversion:"))?.split(":")[1]?.trim();
   const price = lines.find(l => l.toLowerCase().startsWith("price:"))?.split(":")[1]?.trim();
   const stock = lines.find(l => l.toLowerCase().startsWith("stock:"))?.split(":")[1]?.trim();
 
-  console.log("🔎 Parsed:", { conversion, price, stock });
+  if (!conversion || !price || !stock) return;
 
-  if (!conversion || !price || !stock) {
-    console.log("❌ Missing required fields, submission ignored");
-    return;
-  }
-
-  const submission = {
+  submissions.push({
     id: submissions.length + 1,
     messageId: msg.id,
     conversion,
@@ -95,46 +82,55 @@ client.on("messageCreate", msg => {
     image: msg.attachments.first().url,
     verified: false,
     timestamp: Date.now()
-  };
-
-  submissions.push(submission);
+  });
 
   if (submissions.length > 20) submissions.shift();
-
-  console.log("✅ Submission added:", submission);
+  console.log(`📥 New submission: ${conversion}`);
 });
 
-// --- Reaction add handler ---
-client.on("messageReactionAdd", (reaction, user) => {
-  console.log("⭐ Reaction added");
-
+// ===== REACTIONS =====
+client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
+
+  if (reaction.partial) await reaction.fetch();
+
   if (reaction.message.channel.id !== CHANNEL_ID) return;
+  if (reaction.emoji.name !== "✅") return;
 
-  if (reaction.emoji.name === '✅') {
-    const sub = submissions.find(s => s.messageId === reaction.message.id);
-    if (!sub) {
-      console.log("❌ No submission found for reaction");
-      return;
-    }
+  const sub = submissions.find(s => s.messageId === reaction.message.id);
+  if (!sub) return;
 
-    sub.verified = true;
-    console.log(`✅ Submission ${sub.id} verified`);
-  }
+  sub.verified = true;
+  console.log(`✅ Verified by ${user.username}`);
 });
 
-// --- Login Discord bot ---
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+
+  if (reaction.partial) await reaction.fetch();
+
+  if (reaction.message.channel.id !== CHANNEL_ID) return;
+  if (reaction.emoji.name !== "✅") return;
+
+  const sub = submissions.find(s => s.messageId === reaction.message.id);
+  if (!sub) return;
+
+  sub.verified = false;
+  console.log(`❌ Unverified by ${user.username}`);
+});
+
+// ===== LOGIN =====
+console.log("🔌 Attempting Discord login...");
 client.login(DISCORD_TOKEN).catch(err => {
-  console.error("❌ Discord login failed:", err);
+  console.error("🚫 LOGIN FAILED:", err);
 });
 
-// --- GET last 3 submissions ---
+// ===== API =====
 app.get("/submissions", (req, res) => {
-  console.log("🌐 /submissions requested");
   res.json(submissions.slice(-3));
 });
 
-// --- Start server ---
+// ===== START SERVER =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
