@@ -1,68 +1,60 @@
-// ===== CRASH + PROMISE DIAGNOSTICS (LINE 1) =====
-process.on("unhandledRejection", err => {
-  console.error("🔥 UNHANDLED PROMISE:", err);
-});
-process.on("uncaughtException", err => {
-  console.error("💥 UNCAUGHT EXCEPTION:", err);
-});
+// server.js
+// ================================
+// TDX Submissions Server + Discord Bot
+// ================================
 
-// ===== IMPORTS =====
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const { 
-  Client, 
-  GatewayIntentBits, 
-  Partials 
-} = require("discord.js");
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
 
-// ===== EXPRESS =====
 const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// ===== MEMORY STORE =====
-let submissions = [];
-
-// ===== ENV =====
+// ------------------------
+// Environment variables
+// ------------------------
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-console.log("🔑 ENV CHECK:", {
-  hasToken: !!DISCORD_TOKEN,
-  channelId: CHANNEL_ID
-});
+// --- Diagnostic check ---
+console.log("🔑 ENV CHECK:", { hasToken: !!DISCORD_TOKEN, channelId: CHANNEL_ID });
+if (!DISCORD_TOKEN) console.error("❌ DISCORD_TOKEN is missing!");
+if (!CHANNEL_ID) console.error("❌ CHANNEL_ID is missing!");
 
-// ===== DISCORD CLIENT =====
+// ------------------------
+// Submissions storage
+// ------------------------
+let submissions = [];
+
+// ------------------------
+// Discord bot
+// ------------------------
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [
-    Partials.Message,
-    Partials.Channel,
-    Partials.Reaction
-  ]
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
-// ===== DISCORD LIFECYCLE LOGS =====
-client.once("ready", () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
+console.log("🔌 Attempting Discord login...");
+client.login(DISCORD_TOKEN)
+  .then(bot => console.log(`✅ Logged in as ${bot.user.tag}`))
+  .catch(err => console.error("❌ Failed to login:", err));
+
+client.on("ready", () => {
+  console.log(`🚀 Discord bot ready. Logged in as ${client.user.tag}`);
 });
 
-client.on("error", err => {
-  console.error("❌ Discord client error:", err);
-});
-
-client.on("shardError", err => {
-  console.error("❌ Shard error:", err);
-});
-
-// ===== MESSAGE HANDLER =====
+// ------------------------
+// Handle new messages
+// ------------------------
 client.on("messageCreate", msg => {
+  if (!client.isReady()) return; // safety
   if (msg.channel.id !== CHANNEL_ID) return;
   if (!msg.attachments.size) return;
 
@@ -81,57 +73,62 @@ client.on("messageCreate", msg => {
     stock,
     image: msg.attachments.first().url,
     verified: false,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 
-  if (submissions.length > 20) submissions.shift();
-  console.log(`📥 New submission: ${conversion}`);
+  if (submissions.length > 20) submissions.shift(); // keep last 20
+
+  console.log(`🆕 New submission #${submissions.length}: ${conversion}`);
 });
 
-// ===== REACTIONS =====
-client.on("messageReactionAdd", async (reaction, user) => {
+// ------------------------
+// Reaction handling
+// ------------------------
+client.on("messageReactionAdd", (reaction, user) => {
+  if (!client.isReady()) return;
+  if (reaction.message.channel.id !== CHANNEL_ID) return;
   if (user.bot) return;
 
-  if (reaction.partial) await reaction.fetch();
-
-  if (reaction.message.channel.id !== CHANNEL_ID) return;
-  if (reaction.emoji.name !== "✅") return;
-
-  const sub = submissions.find(s => s.messageId === reaction.message.id);
-  if (!sub) return;
-
-  sub.verified = true;
-  console.log(`✅ Verified by ${user.username}`);
+  if (reaction.emoji.name === '✅') {
+    const sub = submissions.find(s => s.messageId === reaction.message.id);
+    if (!sub) return;
+    sub.verified = true;
+    console.log(`✅ Submission ${sub.id} verified by ${user.username}`);
+  }
 });
 
-client.on("messageReactionRemove", async (reaction, user) => {
+client.on("messageReactionRemove", (reaction, user) => {
+  if (!client.isReady()) return;
+  if (reaction.message.channel.id !== CHANNEL_ID) return;
   if (user.bot) return;
 
-  if (reaction.partial) await reaction.fetch();
-
-  if (reaction.message.channel.id !== CHANNEL_ID) return;
-  if (reaction.emoji.name !== "✅") return;
-
-  const sub = submissions.find(s => s.messageId === reaction.message.id);
-  if (!sub) return;
-
-  sub.verified = false;
-  console.log(`❌ Unverified by ${user.username}`);
+  if (reaction.emoji.name === '✅') {
+    const sub = submissions.find(s => s.messageId === reaction.message.id);
+    if (!sub) return;
+    sub.verified = false;
+    console.log(`❌ Submission ${sub.id} unverified by ${user.username}`);
+  }
 });
 
-// ===== LOGIN =====
-console.log("🔌 Attempting Discord login...");
-client.login(DISCORD_TOKEN).catch(err => {
-  console.error("🚫 LOGIN FAILED:", err);
-});
-
-// ===== API =====
+// ------------------------
+// Express routes
+// ------------------------
 app.get("/submissions", (req, res) => {
-  res.json(submissions.slice(-3));
+  const lastThree = submissions.slice(-3);
+  res.json(lastThree);
 });
 
-// ===== START SERVER =====
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.patch("/submissions/:id", (req, res) => {
+  const id = parseInt(req.params.id);
+  const { verified } = req.body;
+  const sub = submissions.find(s => s.id === id);
+  if (!sub) return res.status(404).json({ error: "Submission not found" });
+  sub.verified = !!verified;
+  res.json(sub);
 });
+
+// ------------------------
+// Start server
+// ------------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
